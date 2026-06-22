@@ -1,0 +1,6 @@
+version: '3'
+
+tasks:
+  platforms:
+    cmds:
+      - go tool dist list
