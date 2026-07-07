@@ -1,4 +1,4 @@
-//go:build goexperiment.simd && amd64 && archsimd_test
+// //go:build goexperiment.simd && amd64 && archsimd_test
 
 package contains
 

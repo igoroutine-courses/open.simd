@@ -1,5 +1,3 @@
-//go:build model_test
-
 package main
 
 import (
