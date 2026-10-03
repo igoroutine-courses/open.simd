@@ -4,57 +4,34 @@ package main
 
 import (
 	"fmt"
-
+	"runtime"
 	"simd"
-	"simd/archsimd"
 )
 
+// sumPortable works for any vector width, including software emulation.
+// Go 1.27's portable API has no horizontal sum, so store the lanes once.
 func sumPortable(x simd.Float32s) float32 {
-	switch a := x.ToArch().(type) {
-	case archsimd.Float32x16:
-		a = a.AddPairsGrouped(a)
-		a = a.AddPairsGrouped(a)
-		a = a.AddPairsGrouped(a)
-		a = a.AddPairsGrouped(a)
-
-		return a.GetLo().GetElem(0)
-
-	case archsimd.Float32x8:
-		a = a.AddPairsGrouped(a) // 8 -> 4
-		a = a.AddPairsGrouped(a) // 4 -> 2
-		a = a.AddPairsGrouped(a) // 2 -> 1
-
-		return a.GetLo().GetElem(0) + a.GetHi().GetElem(0)
-
-	case archsimd.Float32x4:
-		a = a.AddPairsGrouped(a) // 4 -> 2
-		a = a.AddPairsGrouped(a) // 2 -> 1
-
-		return a.GetElem(0)
-
-	default:
-
-		var tmp [64]float32
-		x.StoreSlice(tmp[:x.Len()])
-
-		var sum float32
-		for i := 0; i < x.Len(); i++ {
-			sum += tmp[i]
-		}
-		return sum
+	lanes := make([]float32, x.Len())
+	x.Store(lanes)
+	var total float32
+	for _, value := range lanes {
+		total += value
 	}
+	return total
 }
 
+// sumSlice accumulates using portable simd, then uses an architecture-specific
+// horizontal reduction. Floating-point additions are reordered, so the result
+// need not be bit-for-bit equal to a left-to-right scalar sum.
 func sumSlice(xs []float32) float32 {
-	var total float32
-
-	for len(xs) >= simd.Float32s{}.Len() {
-		v := simd.LoadFloat32Slice(xs)
-		total += sumPortable(v)
-		xs = xs[v.Len():]
+	var acc simd.Float32s
+	for len(xs) >= acc.Len() {
+		acc = acc.Add(simd.LoadFloat32s(xs))
+		xs = xs[acc.Len():]
 	}
 
-	// scalar tail
+	total := sumArch(acc)
+	// Never perform a full-vector load past the end of the input.
 	for _, x := range xs {
 		total += x
 	}
@@ -68,7 +45,10 @@ func main() {
 		5, 6, 7, 8,
 		9, 10, 11, 12,
 		13, 14, 15, 16,
+		17, 18, 19, // Exercise a tail with 4-, 8- and 16-lane vectors.
 	}
 
-	fmt.Println(sumSlice(xs))
+	fmt.Printf("%s, %s, vector=%d bits, emulated=%t\n",
+		runtime.Version(), runtime.GOARCH, simd.VectorBitSize(), simd.Emulated())
+	fmt.Println("Sum 1..19:", sumSlice(xs)) // 190
 }
